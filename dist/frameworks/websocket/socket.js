@@ -1,9 +1,13 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 const socket_io_1 = require("socket.io");
 const uuid_1 = require("uuid");
+const queue_1 = __importDefault(require("./queue"));
 const onlineUsers = {};
-const waitingUsers = [];
+const queue = new queue_1.default();
 const initializeSocket = (server) => {
     const io = new socket_io_1.Server(server, {
         cors: {
@@ -23,14 +27,15 @@ const initializeSocket = (server) => {
             console.log("vannu");
             if (data?.receiverId) {
                 const receiverSocketId = onlineUsers[data.receiverId];
-                io.to(receiverSocketId).emit("handle-next");
+                if (receiverSocketId) {
+                    io.to(receiverSocketId).emit("handle-next");
+                }
             }
-            if (waitingUsers.length > 0) {
-                const matchedUserId = waitingUsers.pop();
+            if (!queue.isEmpty()) {
+                const matchedUserId = queue.dequeue();
                 if (matchedUserId) {
                     const matchedSocketId = onlineUsers[matchedUserId];
                     if (matchedSocketId) {
-                        // Notify both users of the match
                         socket.emit("match_found", {
                             userId: matchedUserId,
                             isMaster: true,
@@ -43,7 +48,7 @@ const initializeSocket = (server) => {
                 }
             }
             else {
-                waitingUsers.push(userId);
+                queue.enqueue(userId);
             }
         });
         socket.on("candidate", ({ from, to, candidate }) => {
@@ -63,7 +68,21 @@ const initializeSocket = (server) => {
             const receiver = onlineUsers[to];
             io.to(receiver).emit("answer", { answer });
         });
-        // Handle the "next" event to find a new match
+        socket.on("message", ({ message, to }) => {
+            console.log("messafe", message, to);
+            const receiver = onlineUsers[to];
+            io.to(receiver).emit("message", message);
+        });
+        socket.on("typing", (to) => {
+            console.log("typing", to);
+            const receiver = onlineUsers[to];
+            io.to(receiver).emit("typing");
+        });
+        socket.on("assist-partner", (to) => {
+            console.log("assisting", to);
+            const receiver = onlineUsers[to];
+            io.to(receiver).emit("handle-next");
+        });
         socket.on("disconnect", () => {
             console.log(`User disconnected: ${socket.id}`);
             const userEntry = Object.entries(onlineUsers).find(([_, id]) => id === socket.id);
@@ -71,10 +90,7 @@ const initializeSocket = (server) => {
                 const [disconnectedUserId] = userEntry;
                 delete onlineUsers[disconnectedUserId];
                 console.log(`Removed user with UUID: ${disconnectedUserId}`);
-                // Remove from waiting list if present
-                const index = waitingUsers.indexOf(disconnectedUserId);
-                if (index !== -1)
-                    waitingUsers.splice(index, 1);
+                queue.remove(disconnectedUserId);
             }
         });
     });

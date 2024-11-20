@@ -15,25 +15,29 @@ const initializeSocket = (server: HttpServer): void => {
   });
 
   io.on("connection", (socket: Socket) => {
-    console.log(`User connected: ${socket.id}`);
-
+    
     const userId = uuidv4();
     onlineUsers[userId] = socket.id;
+    console.log("online users",onlineUsers)
     console.log(`User joined with UUID: ${userId}, Socket ID: ${socket.id}`);
 
-    socket.on("user_joined", () => {
+  
       socket.emit("user_id", userId);
-    });
+  
 
     socket.on("find_match", (data) => {
-      console.log("vannu");
-       if (data?.receiverId) {
-         const receiverSocketId = onlineUsers[data.receiverId];
-         if (receiverSocketId) {
-           io.to(receiverSocketId).emit("handle-next");
-         }
-       }
+      console.log("find _ match")
+
+      if (data?.receiverId) {
+        console.log("in receiver id",data.receiverId)
+        const receiverSocketId = onlineUsers[data.receiverId];
+        if (receiverSocketId) {
+          io.to(receiverSocketId).emit("handle-next");
+        }
+      }
+
       if (!queue.isEmpty()) {
+        console.log("if")
         const matchedUserId = queue.dequeue();
         if (matchedUserId) {
           const matchedSocketId = onlineUsers[matchedUserId];
@@ -49,6 +53,8 @@ const initializeSocket = (server: HttpServer): void => {
           }
         }
       } else {
+        console.log("else dequeued")
+    
         queue.enqueue(userId);
       }
     });
@@ -57,40 +63,29 @@ const initializeSocket = (server: HttpServer): void => {
       io.to(receiver).emit("candidate", { candidate, from, to });
     });
     socket.on("offer", ({ from, to, offer }) => {
-      console.log("serveril offer vannu ", from);
       const receiver = onlineUsers[to];
       io.to(receiver).emit("offer", { offer, from });
     });
     socket.on("answer", ({ to, answer }) => {
-      console.log("answer to", to);
-      console.log("answer ", answer);
-      console.log("answer 2 ", onlineUsers[to]);
-      console.log("serveril answer vannu");
       const receiver = onlineUsers[to];
       io.to(receiver).emit("answer", { answer });
     });
-    socket.on("message",({message,to})=>{
-      console.log("messafe",message,to)
-          const receiver = onlineUsers[to];
-          io.to(receiver).emit("message",message)
-
-    })
-    socket.on("typing",(to)=>{
-      console.log("typing",to)
-            const receiver = onlineUsers[to];
-            io.to(receiver).emit("typing")
-
-    })
-    socket.on("assist-partner", (to) => {
-      
-      console.log("assisting",to);
+    socket.on("message", ({ message, to }) => {
       const receiver = onlineUsers[to];
-      io.to(receiver).emit("handle-next");
+      io.to(receiver).emit("message", message);
+    });
+    socket.on("typing", (to) => {
+      const receiver = onlineUsers[to];
+      if (receiver) io.to(receiver).emit("typing");
+    });
+    socket.on("assist-partner", (to) => {
+      const receiver = onlineUsers[to];
+      if (receiver) io.to(receiver).emit("handle-next");
     });
 
-
     socket.on("disconnect", () => {
-      console.log(`User disconnected: ${socket.id}`);
+      
+      // console.log(`User disconnected: ${socket.id}`);
       const userEntry = Object.entries(onlineUsers).find(
         ([_, id]) => id === socket.id
       );
@@ -100,6 +95,7 @@ const initializeSocket = (server: HttpServer): void => {
         console.log(`Removed user with UUID: ${disconnectedUserId}`);
         queue.remove(disconnectedUserId);
       }
+      socket.removeAllListeners();
     });
   });
 };
